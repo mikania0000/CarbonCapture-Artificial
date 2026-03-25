@@ -75,7 +75,7 @@
   .modal-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:10000; }
   .modal{ background:#fff; border-radius:16px; box-shadow:var(--shadow); max-width:400px; width:90%; padding:24px; text-align:center; }
   .modal h3{ margin:0 0 12px; font-size:24px; }
-  .modal p{ margin:0 0 20px; font-size:18px; color:#4b5563;}
+  .modal p{ margin:0 0 20px; font-size:18px; color:#4b5563; line-height:1.5;}
 
   /* Login Overlay */
   #loginOverlay { position: fixed; inset: 0; background: var(--page); z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -112,6 +112,7 @@
       正在與白名單驗證中，請稍候...
     </div>
     
+    <!-- 錯誤訊息區塊 -->
     <div id="loginErrorMsg" style="display:none; margin-top:16px; color:var(--err); font-weight:bold; font-size:16px; background:#fee2e2; padding:12px; border-radius:8px;"></div>
 
     <!-- LINE 瀏覽器警告 -->
@@ -129,7 +130,7 @@
     <div class="card">
       <div class="title" style="position:relative;">
         <span class="title-3d">環境二氧化碳即時看板 (人工碳捕捉)</span>
-        <span style="font-size: 16px; color: #9ca3af; font-weight: normal; margin-left: 8px; vertical-align: bottom;">V.20260309.2</span>
+        <span style="font-size: 16px; color: #9ca3af; font-weight: normal; margin-left: 8px; vertical-align: bottom;">V.20260325.全修復版</span>
         <button id="btnLogout" class="btn btn-gray" style="position:absolute; right:0; top:0; font-size:14px; padding:8px 12px;">登出</button>
       </div>
       <div class="grid">
@@ -154,9 +155,16 @@
             <div class="led"><span id="ledDot" class="dot gray"></span><span id="ledText" class="sub" style="margin-top:0;">等待連線</span></div>
           </div>
           
-          <div class="db-status-bar">
+          <!-- 軟體/資料庫狀態 -->
+          <div class="db-status-bar" style="margin-bottom:8px;">
             <div class="led" title="核心即時系統"><span id="db1Dot" class="dot gray"></span><span id="db1Text" style="font-size:14px; color:#475569;">主系統: 連線中</span></div>
             <div class="led" title="長期保存系統"><span id="db2Dot" class="dot gray"></span><span id="db2Text" style="font-size:14px; color:#475569;">備份系統: 待命</span></div>
+          </div>
+
+          <!-- 硬體/感測器狀態 -->
+          <div class="db-status-bar" style="background:#e0f2fe;">
+            <div class="led" title="ESP32 網路連線狀態"><span id="hwWifiDot" class="dot gray"></span><span id="hwWifiText" style="font-size:14px; color:#0369a1;">ESP32: 偵測中</span></div>
+            <div class="led" title="SCD41 感測器狀態"><span id="hwScdDot" class="dot gray"></span><span id="hwScdText" style="font-size:14px; color:#0369a1;">SCD41: 偵測中</span></div>
           </div>
         </div>
       </div>
@@ -202,9 +210,7 @@
         <!-- 切換至趨勢圖 -->
         <button id="btnSwitchToTrend" type="button" class="btn btn-pink">📊 趨勢分析</button>
         
-        <div id="remain" class="sub" style="margin-left:auto; font-weight:bold; font-size:22px;">剩餘：-- 秒</div>
-        <!-- 開發者測試按鈕 -->
-        <button id="btnSimulate" type="button" class="btn btn-gray" style="font-size:14px; padding:8px 12px; margin-left:10px; display:none;">模擬</button>
+        <div id="remain" class="sub" style="margin-left:auto; font-weight:bold; font-size:22px;">剩餘：-- 時 -- 分 -- 秒</div>
       </div>
     </div>
   </div>
@@ -281,9 +287,9 @@
   // ==========================================
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
   import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-  import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, writeBatch, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+  import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, writeBatch, getDocs, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // ★ 這是您剛產生的「人工碳捕捉」專屬 GAS URL
+  // ★ 人工碳捕捉專屬的 GAS API
   const GAS_URL = "https://script.google.com/macros/s/AKfycbwkxrmjT-T86Xxam-M8kI71xW6V8QKYFRRzF8tNLiUZgPJuUHz1nTEAwvGRTbVwOotfGA/exec"; 
 
   const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
@@ -296,7 +302,7 @@
     measurementId: "G-WNMKJXH8T0"
   };
   
-  // ★ 共用 Firebase 但改用「人工碳捕捉」專用路徑
+  // ★ 人工碳捕捉專用 appId
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'co2-monitor-artificial';
 
   const app = initializeApp(firebaseConfig);
@@ -323,7 +329,7 @@
   function confirmModal(title, msg) {
     return new Promise(resolve => {
       document.getElementById('modalTitle').textContent = title;
-      document.getElementById('modalMsg').textContent = msg;
+      document.getElementById('modalMsg').innerHTML = msg;
       const backdrop = document.getElementById('modalBackdrop');
       backdrop.style.display = 'flex';
       
@@ -335,7 +341,7 @@
 
   function updateRiskUI(ppm){
     const dot=document.getElementById('riskDot'), txt=document.getElementById('riskText');
-    if (ppm==null || isNaN(ppm)){ dot.style.background='#cbd5e1'; txt.textContent='--'; return; }
+    if (ppm==null || isNaN(ppm) || ppm === 0){ dot.style.background='#cbd5e1'; txt.textContent='--'; return; }
     const info = ppm<=450 ? {t:'健康',c:'#22c55e'} : ppm<=700 ? {t:'可接受',c:'#84cc16'}
                : ppm<=1000? {t:'稍悶',c:'#eab308'} : ppm<=2500? {t:'困倦',c:'#f59e0b'}
                : ppm<=5000? {t:'不利健康',c:'#f97316'} : {t:'請勿久待',c:'#ef4444'};
@@ -343,10 +349,8 @@
   }
 
   // ==========================================
-  // 3. 認證登入邏輯 (Google + 白名單 + LocalStorage)
+  // 3. 認證登入邏輯
   // ==========================================
-  
-  // 解析 Google 回傳的 JWT Token 取得 Email
   function parseJwt(token) {
     var base64Url = token.split('.')[1];
     var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -356,37 +360,29 @@
     return JSON.parse(jsonPayload);
   }
 
-  // 登出機制
   document.getElementById('btnLogout').addEventListener('click', () => {
      localStorage.removeItem('co2_auth');
      location.reload();
   });
 
-  // 實際處理 Google 登入的邏輯 (由全域的 handleGoogleLogin 呼叫)
   window.processGoogleLogin = async (response) => {
     const payload = parseJwt(response.credential);
     const email = payload.email;
 
     document.getElementById('loginLoading').style.display = 'block';
-    document.getElementById('loginErrorMsg').style.display = 'none'; // 每次登入前先隱藏錯誤
+    document.getElementById('loginErrorMsg').style.display = 'none'; 
     document.querySelector('.g_id_signin').style.display = 'none';
 
     try {
-      // 呼叫 GAS 後端驗證白名單
       const res = await fetch(`${GAS_URL}?action=verify&email=${encodeURIComponent(email)}`);
       const data = await res.json();
 
       if (data.ok) {
-        // 驗證成功，儲存狀態至 localStorage (保留 7 天)
-        localStorage.setItem('co2_auth', JSON.stringify({
-          email: email,
-          expiry: Date.now() + 7 * 24 * 60 * 60 * 1000
-        }));
+        localStorage.setItem('co2_auth', JSON.stringify({ email: email, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 }));
         document.getElementById('loginOverlay').style.display = 'none';
         showFloat('ok', `登入成功，歡迎 ${email}`);
-        initApp(); // 啟動主程式
+        initApp(); 
       } else {
-        // 顯示權限不足的錯誤
         document.getElementById('loginErrorMsg').textContent = '❌ 登入失敗：您的信箱不在授權白名單中';
         document.getElementById('loginErrorMsg').style.display = 'block';
         showFloat('err', '您的信箱不在鳳甲白名單中', 5);
@@ -394,7 +390,6 @@
         document.querySelector('.g_id_signin').style.display = 'block';
       }
     } catch (err) {
-      // 顯示連線或 GAS 權限異常的錯誤
       document.getElementById('loginErrorMsg').innerHTML = '❌ 驗證連線失敗<br>請確認系統管理員是否已正確發布 GAS 權限。';
       document.getElementById('loginErrorMsg').style.display = 'block';
       showFloat('err', '驗證連線失敗，請檢查網路狀態');
@@ -404,18 +399,15 @@
   };
 
   const checkAuth = () => {
-    // 偵測 LINE 內建瀏覽器並嘗試強制使用外部瀏覽器開啟
     const ua = navigator.userAgent || navigator.vendor || window.opera;
     if (ua.includes("Line") || ua.includes("LINE")) {
-        // 如果網址尚未包含 openExternalBrowser=1，則加上去並重新導向以觸發 LINE 的外部跳轉機制
         if (window.location.search.indexOf('openExternalBrowser=1') === -1) {
             const separator = window.location.href.indexOf('?') === -1 ? '?' : '&';
             window.location.href = window.location.href + separator + 'openExternalBrowser=1';
-            return; // 中斷後續執行，等待跳轉
+            return; 
         } else {
-            // 如果加上參數後依然在 LINE 裡面 (iOS 偶爾會發生)，則顯示手動提示與複製按鈕
             document.getElementById('lineWarning').style.display = 'block';
-            document.querySelector('.g_id_signin').style.display = 'none'; // 隱藏無效的登入按鈕
+            document.querySelector('.g_id_signin').style.display = 'none'; 
             
             document.getElementById('btnCopyUrl').addEventListener('click', () => {
                 const tempInput = document.createElement('input');
@@ -426,17 +418,15 @@
                 document.body.removeChild(tempInput);
                 showFloat('ok', '網址已複製，請至 Safari / Chrome 貼上', 4);
             });
-            return; // 停在登入畫面，不執行後續登入邏輯
+            return; 
         }
     }
 
     const authData = JSON.parse(localStorage.getItem('co2_auth') || 'null');
     if (authData && authData.expiry > Date.now()) {
-        // Token 仍在有效期內，隱藏登入介面，直接進入
         document.getElementById('loginOverlay').style.display = 'none';
         initApp();
     } else {
-        // 過期或尚未登入，清除無效資料並等待使用者進行 Google 登入
         localStorage.removeItem('co2_auth');
     }
   };
@@ -518,14 +508,19 @@
     }
   };
 
-  Chart.register(RiskLinesPlugin, MidLabelPlugin);
+  Chart.register(RiskLinesPlugin); // 只註冊危險線
 
   // ==========================================
-  // 5. View 1: 即時監測邏輯
+  // 5. View 1: 即時監測與硬體監控邏輯
   // ==========================================
   let DUR_MIN_REALTIME = 10;
   let currentExp = 'exp1';
   let isGateOn = false, startTimeMs = null, datasetRealtime = [];
+  let previewStartTime = null; 
+
+  // ★ 核心魔法變數：只要網頁一開，預設進入「純預覽模式」(畫圖但不儲存)
+  let isLocalPreview = true;   
+
   let unsubscribeRecords = null, unsubscribeState = null;
   const getStateRef = () => doc(db, 'artifacts', appId, 'public', 'data', 'config', 'global_state');
   const getRecordsRef = (exp) => collection(db, 'artifacts', appId, 'public', 'data', `records_${exp}`);
@@ -552,6 +547,27 @@
 
   document.getElementById('selDurRealtime').addEventListener('change', (e) => { DUR_MIN_REALTIME = Number(e.target.value); redrawChartRealtime(); });
 
+  // ★ 監控硬體狀態的計時器
+  setInterval(() => {
+     const now = Date.now();
+     const liveTs = Number(document.getElementById('ts').getAttribute('data-ts') || 0);
+     const scdStatusStr = document.getElementById('hwScdDot').getAttribute('data-status') || 'error';
+     
+     const isWifiOk = liveTs > 0 && (now - liveTs) < 15000; 
+
+     const wifiDot = document.getElementById('hwWifiDot'), wifiText = document.getElementById('hwWifiText');
+     const scdDot = document.getElementById('hwScdDot'), scdText = document.getElementById('hwScdText');
+
+     if (isWifiOk) {
+         wifiDot.className = 'dot green'; wifiText.textContent = 'ESP32: 🟢 已連線';
+         if (scdStatusStr === 'ok') { scdDot.className = 'dot green'; scdText.textContent = 'SCD41: 🟢 讀取正常'; } 
+         else { scdDot.className = 'dot red'; scdText.textContent = 'SCD41: 🔴 讀取異常'; }
+     } else {
+         wifiDot.className = 'dot red'; wifiText.textContent = 'ESP32: 🔴 網路斷線';
+         scdDot.className = 'dot gray'; scdText.textContent = 'SCD41: ⚪ 未知';
+     }
+  }, 2000);
+
   function listenToState() {
     if (unsubscribeState) unsubscribeState();
     unsubscribeState = onSnapshot(getStateRef(), (snapshot) => {
@@ -560,16 +576,56 @@
         isGateOn = data.gate === 'on';
         startTimeMs = data.startTimeMs || null;
         
+        // 【控制預覽模式切換】
+        if (isGateOn) isLocalPreview = false; // 按下開始，脫離預覽，看正式資料庫
+        if (!startTimeMs) isLocalPreview = true; // 完全清空狀態下，強制進入預覽
+
         document.getElementById('btnStart').style.display = isGateOn ? 'none' : 'inline-block';
         document.getElementById('btnPause').style.display = isGateOn ? 'inline-block' : 'none';
-        document.getElementById('status').textContent = isGateOn ? '記錄中' : '已暫停';
-        document.getElementById('ledDot').className = isGateOn ? 'dot green' : 'dot red';
-        document.getElementById('ledText').textContent = isGateOn ? '傳送中' : '未記錄';
+        
+        // 介面文字更新
+        if (isLocalPreview) {
+            document.getElementById('status').textContent = '即時預覽中';
+            document.getElementById('ledDot').className = 'dot gray';
+            document.getElementById('ledText').textContent = '純預覽不儲存';
+        } else {
+            document.getElementById('status').textContent = isGateOn ? '記錄中' : '已暫停';
+            document.getElementById('ledDot').className = isGateOn ? 'dot green' : 'dot gray';
+            document.getElementById('ledText').textContent = isGateOn ? '正式紀錄儲存中' : '暫停儲存';
+        }
 
         if (data.expKey && data.expKey !== currentExp) {
            document.getElementById('selExp').value = data.expKey;
            switchExperimentRealtime(data.expKey);
         }
+
+        // ★ 處理來自 ESP32 的即時預覽數據與心跳
+        if (data.live_ts) {
+            document.getElementById('ts').setAttribute('data-ts', data.live_ts);
+            document.getElementById('hwScdDot').setAttribute('data-status', data.scd41_status || 'error');
+
+            // 只要沒有在「正式記錄中」，我們都讓大數字隨著硬體即時跳動
+            if (!isGateOn && data.live_co2 > 0) {
+                document.getElementById('co2').textContent = Math.round(data.live_co2);
+                document.getElementById('temp').textContent = data.live_temp ? data.live_temp.toFixed(1) : '--';
+                document.getElementById('rh').textContent = data.live_rh ? data.live_rh.toFixed(1) : '--';
+                updateRiskUI(data.live_co2);
+                document.getElementById('ts').textContent = new Date(Number(data.live_ts)).toLocaleString();
+            }
+
+            // 【重點功能】如果處於「預覽模式」，我們無條件攔截心跳數據開始畫圖！
+            if (isLocalPreview && data.live_co2 > 0) {
+                if (!previewStartTime) previewStartTime = Number(data.live_ts);
+                const xMin = Math.max(0, (Number(data.live_ts) - previewStartTime) / 1000 / 60);
+
+                if (!datasetRealtime.find(p => p.ts === Number(data.live_ts))) {
+                    datasetRealtime.push({ x: xMin, y: data.live_co2, ts: Number(data.live_ts) });
+                    if (datasetRealtime.length > 300) datasetRealtime.shift(); // 預覽最多保留畫面
+                    redrawChartRealtime();
+                }
+            }
+        }
+
       } else {
         setDoc(getStateRef(), { gate: 'off', expKey: 'exp1', expName: '實驗1', startTimeMs: null });
       }
@@ -578,29 +634,43 @@
 
   async function switchExperimentRealtime(exp) {
     currentExp = exp;
-    datasetRealtime.length = 0; redrawChartRealtime();
+    datasetRealtime.length = 0; 
+    previewStartTime = null;    
+    redrawChartRealtime();
+
+    // ★ 切換頻道時自動從 Firebase 的 names 公佈欄抓取先前的實驗名稱
+    try {
+        const namesSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'names'));
+        if (namesSnap.exists() && namesSnap.data()[exp]) {
+            document.getElementById('expName').value = namesSnap.data()[exp];
+        } else {
+            document.getElementById('expName').value = '';
+        }
+    } catch(e) {}
+    
     if (unsubscribeRecords) unsubscribeRecords();
 
     unsubscribeRecords = onSnapshot(getRecordsRef(exp), (snapshot) => {
       let latestDoc = null, maxTs = 0;
-      datasetRealtime.length = 0;
-      snapshot.forEach(docSnap => {
-        const d = docSnap.data();
-        if (startTimeMs) {
-          datasetRealtime.push({ x: Math.max(0, (d.ts - startTimeMs)/1000/60), y: d.co2, data: d, id: docSnap.id });
-        }
-        if (d.ts > maxTs) { maxTs = d.ts; latestDoc = d; }
-      });
-      datasetRealtime.sort((a,b) => a.x - b.x);
-      redrawChartRealtime();
+      
+      // ★ 只有在已經「按下開始」且「不是預覽模式」時，才拿資料庫的歷史紀錄來畫圖
+      if (!isLocalPreview && startTimeMs) {
+          datasetRealtime.length = 0;
+          snapshot.forEach(docSnap => {
+            const d = docSnap.data();
+            datasetRealtime.push({ x: Math.max(0, (d.ts - startTimeMs)/1000/60), y: d.co2, ts: d.ts, data: d, id: docSnap.id });
+            if (d.ts > maxTs) { maxTs = d.ts; latestDoc = d; }
+          });
+          datasetRealtime.sort((a,b) => a.x - b.x);
+          redrawChartRealtime();
 
-      if (latestDoc) {
-        document.getElementById('co2').textContent = Math.round(latestDoc.co2);
-        document.getElementById('temp').textContent = latestDoc.temp ? latestDoc.temp.toFixed(1) : '--';
-        document.getElementById('rh').textContent = latestDoc.rh ? latestDoc.rh.toFixed(1) : '--';
-        document.getElementById('ts').textContent = new Date(latestDoc.ts).toLocaleString();
-        updateRiskUI(latestDoc.co2);
-        if(latestDoc.expName) document.getElementById('expName').value = latestDoc.expName;
+          if (latestDoc) {
+            document.getElementById('co2').textContent = Math.round(latestDoc.co2);
+            document.getElementById('temp').textContent = latestDoc.temp ? latestDoc.temp.toFixed(1) : '--';
+            document.getElementById('rh').textContent = latestDoc.rh ? latestDoc.rh.toFixed(1) : '--';
+            document.getElementById('ts').textContent = new Date(latestDoc.ts).toLocaleString();
+            updateRiskUI(latestDoc.co2);
+          }
       }
     });
   }
@@ -611,13 +681,53 @@
   });
 
   document.getElementById('btnStart').addEventListener('click', async () => {
-    await setDoc(getStateRef(), { gate: 'on', expKey: currentExp, expName: document.getElementById('expName').value || document.getElementById('selExp').options[document.getElementById('selExp').selectedIndex].text, startTimeMs: Date.now() }, { merge: true });
-    showFloat('ok', '開始接收數據');
+    const snap = await getDocs(getRecordsRef(currentExp));
+    if (!snap.empty) {
+      const expText = document.getElementById('selExp').options[document.getElementById('selExp').selectedIndex].text;
+      const ok = await confirmModal(
+        '發現舊資料', 
+        `「${expText}」目前已經存在歷史紀錄。<br><br>為確保圖表時間軸繪製正確，<br>是否<b>精準清空此頻道的舊資料</b>並重新開始？<br><span style="font-size:15px; color:#ef4444;">(若選擇取消，將不會啟動接收)</span>`
+      );
+      if (!ok) return;
+
+      const batch = writeBatch(db);
+      snap.forEach(docSnap => batch.delete(docSnap.ref));
+      await batch.commit();
+      try { fetch(`${GAS_URL}?action=clear&exp=${currentExp}`); } catch(e) {} 
+      
+      await updateDoc(getStateRef(), { startTimeMs: null });
+      document.getElementById('co2').textContent = '--'; 
+      document.getElementById('ts').textContent = '--'; 
+      updateRiskUI(null);
+    }
+
+    const currentExpName = document.getElementById('expName').value || document.getElementById('selExp').options[document.getElementById('selExp').selectedIndex].text;
+
+    // ★ 按下開始時，統一將實驗名稱存入 Firebase 的獨立公佈欄
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'names'), {
+      [currentExp]: currentExpName
+    }, { merge: true });
+
+    // 離開預覽模式
+    isLocalPreview = false;
+    previewStartTime = null;
+    datasetRealtime.length = 0;
+    redrawChartRealtime();
+
+    await setDoc(getStateRef(), { 
+      gate: 'on', 
+      expKey: currentExp, 
+      expName: currentExpName, 
+      startTimeMs: Date.now() 
+    }, { merge: true });
+
+    showFloat('ok', '開始正式寫入儲存');
   });
 
   document.getElementById('btnPause').addEventListener('click', async () => {
+    isLocalPreview = false; 
     await updateDoc(getStateRef(), { gate: 'off' });
-    showFloat('info', '已暫停接收，正在同步備份...');
+    showFloat('info', '已暫停紀錄，正在同步備份...');
     performSync();
   });
 
@@ -626,20 +736,47 @@
     const ok = await confirmModal('確定清空?', `將刪除「${document.getElementById('selExp').options[document.getElementById('selExp').selectedIndex].text}」的所有系統記錄。`);
     if (!ok) return;
 
+    // 清空 Firebase
     const snap = await getDocs(getRecordsRef(currentExp));
     const batch = writeBatch(db);
     snap.forEach(docSnap => batch.delete(docSnap.ref));
     await batch.commit();
+    
+    // 通知 GAS
     try { fetch(`${GAS_URL}?action=clear&exp=${currentExp}`); } catch(e) {} 
     
+    // 狀態重置
     await updateDoc(getStateRef(), { startTimeMs: null });
-    document.getElementById('co2').textContent = '--'; document.getElementById('ts').textContent = '--'; updateRiskUI(null);
-    datasetRealtime.length = 0; redrawChartRealtime(); showFloat('ok', '已清空資料');
+    document.getElementById('co2').textContent = '--'; 
+    document.getElementById('ts').textContent = '--'; 
+    updateRiskUI(null);
+    
+    // 強制回到預覽模式並重繪圖表
+    isLocalPreview = true;
+    previewStartTime = null;
+    datasetRealtime.length = 0; 
+    redrawChartRealtime(); 
+    
+    showFloat('ok', '已清空雲端與試算表，重新預覽中');
   });
 
   document.getElementById('btnRedraw').addEventListener('click', () => {
-    if (isGateOn) { showFloat('err', '實驗中，無法重繪'); return; }
-    redrawChartRealtime(); showFloat('ok', '圖表已重新整理');
+    if (isGateOn) {
+      showFloat('info', '記錄中，無法使用預覽重繪');
+      return;
+    }
+    
+    // 強制脫離「已暫停」狀態，切換回純預覽模式
+    isLocalPreview = true;
+    datasetRealtime.length = 0; 
+    previewStartTime = null;    
+    redrawChartRealtime();      
+    
+    document.getElementById('status').textContent = '即時預覽中';
+    document.getElementById('ledDot').className = 'dot gray';
+    document.getElementById('ledText').textContent = '純預覽不儲存';
+
+    showFloat('ok', '已回到預覽模式，重新開始繪製');
   });
 
   // Background Sync
@@ -655,7 +792,20 @@
       const d2D = document.getElementById('db2Dot'), d2T = document.getElementById('db2Text');
       if (pendingSync.length > 0) {
         d2D.className = 'dot yellow'; d2T.textContent = `備份系統: 同步中(${pendingSync.length})`;
-        const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'sync_batch', expKey: currentExp, records: pendingSync }) });
+        
+        const currentExpName = document.getElementById('expName').value || document.getElementById('selExp').options[document.getElementById('selExp').selectedIndex].text;
+
+        const res = await fetch(GAS_URL, { 
+          method: 'POST', 
+          body: JSON.stringify({ 
+            action: 'sync_batch', 
+            expKey: currentExp, 
+            expName: currentExpName,
+            startTime: startTimeMs,
+            records: pendingSync 
+          }) 
+        });
+
         if ((await res.json()).ok) {
            const batch = writeBatch(db);
            pendingSync.forEach(r => batch.update(doc(db, 'artifacts', appId, 'public', 'data', `records_${currentExp}`, r.id), { synced: true }));
@@ -674,9 +824,15 @@
   setInterval(() => {
     if (isGateOn && startTimeMs) {
       const remainSec = Math.max(0, Math.floor(DUR_MIN_REALTIME * 60 - ((Date.now() - startTimeMs) / 1000)));
-      document.getElementById('remain').textContent = `剩餘：${remainSec} 秒`;
+      
+      const h = String(Math.floor(remainSec / 3600)).padStart(2, '0');
+      const m = String(Math.floor((remainSec % 3600) / 60)).padStart(2, '0');
+      const s = String(remainSec % 60).padStart(2, '0');
+      
+      document.getElementById('remain').textContent = `剩餘：${h} 時 ${m} 分 ${s} 秒`;
+      
       if (remainSec === 0) { updateDoc(getStateRef(), { gate: 'off' }); showFloat('info', '已達時長，自動停止並同步', 4); performSync(); }
-    } else document.getElementById('remain').textContent = `剩餘：-- 秒`;
+    } else document.getElementById('remain').textContent = `剩餘：-- 時 -- 分 -- 秒`;
   }, 1000);
 
   // ==========================================
@@ -684,6 +840,7 @@
   // ==========================================
   const chartTrend = new Chart(document.getElementById('chartTrend').getContext('2d'), {
     type:'line', data:{ datasets:[] },
+    plugins: [MidLabelPlugin],
     options:{
       responsive:true, animation:false, parsing:false, maintainAspectRatio: false,
       layout:{ padding:{ right:90 }}, 
@@ -695,7 +852,7 @@
         legend:{ display:true, labels:{ font:{ size:18 } } },
         riskLines:{ thresholds: riskThresholds },
         decimation:{ enabled:true, algorithm:'min-max' },
-        midLabel:{} // configured in plugin defaults
+        midLabel:{} 
       },
       elements:{ point:{ radius:1.5 } }
     }
@@ -710,13 +867,10 @@
         if((await r.json()).ok) updateTrendLabels(r.names);
       } else {
         if (!isAuthReady) return;
-        const names = {};
-        for (let key of KEYS) {
-           const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', `records_${key}`));
-           let found = false;
-           snap.forEach(d => { if (!found && d.data().expName) { names[key] = d.data().expName; found = true; } });
+        const namesSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'names'));
+        if (namesSnap.exists()) {
+           updateTrendLabels(namesSnap.data());
         }
-        updateTrendLabels(names);
       }
     } catch(e) {}
   }
@@ -746,14 +900,22 @@
          seriesData = j.ok ? j.series : [];
       } else {
          if (!isAuthReady) return;
+
+         let firebaseNames = {};
+         try {
+             const namesSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'names'));
+             if (namesSnap.exists()) firebaseNames = namesSnap.data();
+         } catch(e) {}
+
          for (let exp of exps) {
             const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', `records_${exp}`));
             const docs = []; snap.forEach(d => docs.push(d.data()));
             if (docs.length === 0) continue;
             docs.sort((a,b) => a.ts - b.ts);
             const minTs = docs[0].ts, points = [];
-            let expName = `實驗${exp.replace('exp','')}`;
-            for(let d of docs) { if(d.expName) { expName = d.expName; break; } }
+            
+            let expName = firebaseNames[exp] || `實驗${exp.replace('exp','')}`;
+            
             for(let d of docs) { const sec = (d.ts - minTs)/1000; if(sec <= dur*60) points.push([sec, d.co2]); }
             seriesData.push({ key: exp, name: expName, points });
          }
@@ -809,14 +971,14 @@
       if (user) {
         isAuthReady = true;
         document.getElementById('db1Dot').className = 'dot green'; document.getElementById('db1Text').textContent = '主系統: 已連線';
-        listenToState(); switchExperimentRealtime(document.getElementById('selExp').value);
+        listenToState(); switchExperimentRealtime(selExp.value);
       } else {
         document.getElementById('db1Dot').className = 'dot red'; document.getElementById('db1Text').textContent = '主系統: 斷線';
       }
     });
   }
 
-  // 程式進入點：先進行身分驗證，通過後才會進入 initApp()
+  // 程式進入點
   checkAuth();
 </script>
 </body>
